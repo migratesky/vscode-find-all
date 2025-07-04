@@ -189,107 +189,6 @@ class Logger {
     }
 }
 
-function activate(context) {
-    const optionsManager = new FindAllOptions(context);
-    const logger = new Logger(context);
-    logger.log('Extension activated');
-    
-    let disposable = vscode.commands.registerCommand('vscode-find-all.findAll', async function () {
-        const { searchTerm, options } = await optionsManager.showOptions();
-        if (!searchTerm) return;
-        
-        // Create results panel
-        const panel = vscode.window.createWebviewPanel(
-            'findAllResults',
-            'Find All Results',
-            vscode.ViewColumn.Beside,
-            {
-                enableScripts: true,
-                retainContextWhenHidden: true,
-                localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'media'))],
-                enableCommandUris: true,
-                contentOptions: {
-                    allowScripts: true
-                }
-            }
-        );
-
-        // Find matches with options
-        const matches = findMatchesInDocument(searchTerm, options);
-        
-        // Update panel with results and active options
-        const csp = `<meta http-equiv="Content-Security-Policy" 
-            content="default-src 'none'; 
-            img-src ${panel.webview.cspSource} https:; 
-            script-src ${panel.webview.cspSource} 'unsafe-inline';
-            style-src ${panel.webview.cspSource} 'unsafe-inline';">`;
-        panel.webview.html = `<!DOCTYPE html>
-<html>
-<head>
-    ${csp}
-    ${getWebviewContent(matches, searchTerm, options)}
-</head>
-<body>
-</body>
-</html>`;
-        
-        // Get active editor
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            vscode.window.showErrorMessage('No active editor found');
-            return;
-        }
-
-        // Handle message from webview
-        panel.webview.onDidReceiveMessage(
-            message => {
-                if (message.command === 'navigate') {
-                    const line = message.line - 1;
-                    const startCol = message.startCol;
-                    const endCol = message.endCol;
-                    
-                    const startPos = new vscode.Position(line, startCol);
-                    const endPos = new vscode.Position(line, endCol);
-                    const range = new vscode.Range(startPos, endPos);
-                    
-                    editor.selection = new vscode.Selection(startPos, endPos);
-                    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-                }
-            },
-            undefined,
-            context.subscriptions
-        );
-
-        // Decorate matches in editor
-        const decorationType = markDecorationTypes[options.highlightColor === 'Default' ? 0 : options.highlightColor === 'Coral' ? 1 : 2];
-        
-        editor.setDecorations(decorationType, matches.map(m => m.range));
-
-        logger.log('Search performed', { 
-            term: searchTerm, 
-            options,
-            matchCount: matches.length 
-        });
-    });
-
-    context.subscriptions.push(disposable);
-    context.subscriptions.push(
-        vscode.commands.registerCommand('vscode-find-all.clearMarks', clearAllMarks)
-    );
-
-    // Add to activate function
-    context.subscriptions.push(
-        vscode.commands.registerCommand('vscode-find-all.toggleBookmark', () => {
-            toggleBookmark();
-            logger.log('Bookmark toggled', { line, file });
-        }),
-        vscode.commands.registerCommand('vscode-find-all.nextBookmark', () => navigateBookmarks(true)),
-        vscode.commands.registerCommand('vscode-find-all.prevBookmark', () => navigateBookmarks(false)),
-        vscode.commands.registerCommand('vscode-find-all.clearBookmarks', clearBookmarks),
-        vscode.commands.registerCommand('vscode-find-all.showLogs', () => logger.showLogs())
-    );
-}
-
 function findMatchesInDocument(searchTerm, options) {
     const editor = vscode.window.activeTextEditor;
     if (!editor) return [];
@@ -514,52 +413,6 @@ function clearAllMarks() {
     }
 }
 
-// Add new functions
-function toggleBookmark() {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) return;
-
-    const lineNumber = editor.selection.active.line;
-    const existingIndex = bookmarks.findIndex(b => b.line === lineNumber && b.file === editor.document.uri.fsPath);
-
-    if (existingIndex >= 0) {
-        bookmarks.splice(existingIndex, 1);
-    } else {
-        bookmarks.push({
-            file: editor.document.uri.fsPath,
-            line: lineNumber
-        });
-    }
-
-    updateBookmarkDecorations();
-}
-
-function navigateBookmarks(forward = true) {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || bookmarks.length === 0) return;
-
-    const currentLine = editor.selection.active.line;
-    const currentFile = editor.document.uri.fsPath;
-    
-    let filtered = bookmarks.filter(b => b.file === currentFile);
-    if (filtered.length === 0) filtered = bookmarks;
-    
-    let nextIndex = 0;
-    if (forward) {
-        nextIndex = filtered.findIndex(b => b.line > currentLine);
-        if (nextIndex === -1) nextIndex = 0;
-    } else {
-        nextIndex = filtered.findIndex(b => b.line >= currentLine) - 1;
-        if (nextIndex < 0) nextIndex = filtered.length - 1;
-    }
-    
-    const bookmark = filtered[nextIndex];
-    const position = new vscode.Position(bookmark.line, 0);
-    
-    editor.selection = new vscode.Selection(position, position);
-    editor.revealRange(new vscode.Range(position, position));
-}
-
 function updateBookmarkDecorations() {
     const editor = vscode.window.activeTextEditor;
     if (!editor) return;
@@ -572,9 +425,90 @@ function updateBookmarkDecorations() {
     editor.setDecorations(bookmarkDecorationType, ranges);
 }
 
-function clearBookmarks() {
-    bookmarks = [];
-    updateBookmarkDecorations();
+function activate(context) {
+    const optionsManager = new FindAllOptions(context);
+    const logger = new Logger(context);
+    logger.log('Extension activated');
+    
+    let disposable = vscode.commands.registerCommand('vscode-find-all.findAll', async function () {
+        const { searchTerm, options } = await optionsManager.showOptions();
+        if (!searchTerm) return;
+        
+        // Create results panel
+        const panel = vscode.window.createWebviewPanel(
+            'findAllResults',
+            'Find All Results',
+            vscode.ViewColumn.Beside,
+            {
+                enableScripts: true,
+                retainContextWhenHidden: true,
+                localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'media'))],
+                enableCommandUris: true,
+                contentOptions: {
+                    allowScripts: true
+                }
+            }
+        );
+
+        // Find matches with options
+        const matches = findMatchesInDocument(searchTerm, options);
+        
+        // Update panel with results and active options
+        const csp = `<meta http-equiv="Content-Security-Policy" 
+            content="default-src 'none'; 
+            img-src ${panel.webview.cspSource} https:; 
+            script-src ${panel.webview.cspSource} 'unsafe-inline';
+            style-src ${panel.webview.cspSource} 'unsafe-inline';">`;
+        panel.webview.html = `<!DOCTYPE html>
+<html>
+<head>
+    ${csp}
+    ${getWebviewContent(matches, searchTerm, options)}
+</head>
+<body>
+</body>
+</html>`;
+        
+        // Get active editor
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            vscode.window.showErrorMessage('No active editor found');
+            return;
+        }
+
+        // Handle message from webview
+        panel.webview.onDidReceiveMessage(
+            message => {
+                if (message.command === 'navigate') {
+                    const line = message.line - 1;
+                    const startCol = message.startCol;
+                    const endCol = message.endCol;
+                    
+                    const startPos = new vscode.Position(line, startCol);
+                    const endPos = new vscode.Position(line, endCol);
+                    const range = new vscode.Range(startPos, endPos);
+                    
+                    editor.selection = new vscode.Selection(startPos, endPos);
+                    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+                }
+            },
+            undefined,
+            context.subscriptions
+        );
+
+        // Decorate matches in editor
+        const decorationType = markDecorationTypes[options.highlightColor === 'Default' ? 0 : options.highlightColor === 'Coral' ? 1 : 2];
+        
+        editor.setDecorations(decorationType, matches.map(m => m.range));
+
+        logger.log('Search performed', { 
+            term: searchTerm, 
+            options,
+            matchCount: matches.length 
+        });
+    });
+
+    context.subscriptions.push(disposable);
 }
 
 function deactivate() {}
