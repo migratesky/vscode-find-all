@@ -1,0 +1,90 @@
+{
+  "name": "vscode-find-all",
+  "displayName": "Find All Occurrences",
+  "description": "Enhanced find functionality with find all occurrences and persistent highlighting",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:vscode-find-all.findAll"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vscode-find-all.findAll",
+        "title": "Find All Occurrences"
+      },
+      {
+        "command": "vscode-find-all.clearMarks",
+        "title": "Clear All Marks"
+      },
+      {
+        "command": "vscode-find-all.toggleBookmark",
+        "title": "Toggle Bookmark"
+      },
+      {
+        "command": "vscode-find-all.nextBookmark",
+        "title": "Next Bookmark"
+      },
+      {
+        "command": "vscode-find-all.prevBookmark",
+        "title": "Previous Bookmark"
+      },
+      {
+        "command": "vscode-find-all.clearBookmarks",
+        "title": "Clear All Bookmarks"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "vscode-find-all.findAll",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "vscode-find-all.clearMarks",
+        "key": "ctrl+shift+alt+f",
+        "mac": "cmd+shift+opt+f",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "vscode-find-all.toggleBookmark",
+        "key": "alt+f2",
+        "mac": "opt+f2",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "vscode-find-all.nextBookmark",
+        "key": "f2",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "vscode-find-all.prevBookmark",
+        "key": "shift+f2",
+        "when": "editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "node ./test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/glob": "^8.0.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "16.x",
+    "eslint": "^8.0.0",
+    "glob": "^8.0.0",
+    "mocha": "^10.0.0",
+    "typescript": "^4.9.0",
+    "@vscode/test-electron": "^2.2.0"
+  }
+}
