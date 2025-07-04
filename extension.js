@@ -334,7 +334,8 @@ function findMatchesInDocument(searchTerm, options) {
 }
 
 function escapeRegExp(string) {
-    return string.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+    // More comprehensive regex escape function
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function getWebviewContent(matches, searchTerm, options) {
@@ -458,9 +459,23 @@ function getWebviewContent(matches, searchTerm, options) {
     }
 
     function highlightMatch(lineText, matchText) {
-        const escapedMatch = escapeRegExp(matchText);
-        const regex = new RegExp(`(${escapedMatch})`, 'gi');
-        return lineText.replace(regex, '<span class="match-highlight">$1</span>');
+        try {
+            // Safely escape the match text
+            const escapedMatch = escapeRegExp(matchText);
+            
+            // Create regex with try-catch for safety
+            const regex = new RegExp(`(${escapedMatch})`, 'gi');
+            return lineText.replace(regex, '<span class="match-highlight">$1</span>');
+        } catch (error) {
+            // If regex creation fails, fall back to a simple string replacement
+            console.error('Regex error in highlightMatch:', error.message);
+            
+            // Simple fallback that doesn't use regex
+            if (matchText && lineText.toLowerCase().includes(matchText.toLowerCase())) {
+                return lineText.replace(matchText, '<span class="match-highlight">' + matchText + '</span>');
+            }
+            return lineText; // Return original if all else fails
+        }
     }
 
     function getMatchContext(lineText, matchText, position) {
