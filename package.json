@@ -3,6 +3,11 @@
   "displayName": "Find All Occurrences",
   "description": "Enhanced find functionality with find all occurrences and persistent highlighting",
   "version": "0.0.1",
+  "publisher": "migratesky",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/migratesky/vscode-find-all.git"
+  },
   "engines": {
     "vscode": "^1.75.0"
   },
