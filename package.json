@@ -13,6 +13,7 @@
     "onCommand:vscode-find-all.findAll"
   ],
   "main": "./extension.js",
+  "enabledApiProposals": ["extensionRuntime"],
   "contributes": {
     "commands": [
       {
@@ -38,6 +39,10 @@
       {
         "command": "vscode-find-all.clearBookmarks",
         "title": "Clear All Bookmarks"
+      },
+      {
+        "command": "vscode-find-all.showLogs",
+        "title": "Show Activity Logs"
       }
     ],
     "keybindings": [

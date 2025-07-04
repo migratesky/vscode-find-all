@@ -1,4 +1,5 @@
 const vscode = require('vscode');
+const path = require('path');
 
 // Store search options globally
 let searchOptions = {
@@ -36,110 +37,238 @@ const bookmarkDecorationType = vscode.window.createTextEditorDecorationType({
     overviewRulerLane: vscode.OverviewRulerLane.Right
 });
 
-function activate(context) {
-    let disposable = vscode.commands.registerCommand('vscode-find-all.findAll', function () {
-        // Create quick pick for search options
+class FindAllOptions {
+    constructor(context) {
+        this.context = context;
+        this.state = context.workspaceState;
+        this.loadOptions();
+    }
+
+    loadOptions() {
+        this.matchCase = this.state.get('findAll.matchCase', false);
+        this.wholeWord = this.state.get('findAll.wholeWord', false);
+        this.useRegex = this.state.get('findAll.useRegex', false);
+        this.lastSearch = this.state.get('findAll.lastSearch', '');
+        this.highlightColor = this.state.get('findAll.highlightColor', 'Default');
+    }
+
+    async showOptions() {
+        const logger = new Logger(this.context);
+        logger.log('showOptions called', {
+            matchCase: this.matchCase,
+            wholeWord: this.wholeWord,
+            useRegex: this.useRegex,
+            highlightColor: this.highlightColor
+        });
+        
+        // Create a single QuickPick for both search term and options
+        const quickPick = vscode.window.createQuickPick();
+        quickPick.title = 'Find All Occurrences';
+        quickPick.placeholder = 'Enter search term';
+        quickPick.value = this.lastSearch;
+        
+        // Define option items with icons for better visibility
         const optionItems = [
-            { label: 'Match Case', description: 'Case sensitive search', picked: searchOptions.matchCase },
-            { label: 'Whole Word', description: 'Match whole words only', picked: searchOptions.wholeWord },
-            { label: 'Use Regex', description: 'Use regular expressions', picked: searchOptions.useRegex }
+            { label: '$(case-sensitive) Match Case', picked: this.matchCase, alwaysShow: true, id: 'matchCase' },
+            { label: '$(text-size) Whole Word', picked: this.wholeWord, alwaysShow: true, id: 'wholeWord' },
+            { label: '$(regex) Use Regular Expression', picked: this.useRegex, alwaysShow: true, id: 'useRegex' },
+            { label: '$(symbol-color) Highlight: Default', picked: this.highlightColor === 'Default', alwaysShow: true, id: 'highlightDefault' },
+            { label: '$(symbol-color) Highlight: Coral', picked: this.highlightColor === 'Coral', alwaysShow: true, id: 'highlightCoral' },
+            { label: '$(symbol-color) Highlight: Pale Green', picked: this.highlightColor === 'Pale Green', alwaysShow: true, id: 'highlightPaleGreen' }
         ];
-
-        vscode.window.showQuickPick(optionItems, {
-            placeHolder: 'Select search options (press Escape to skip)',
-            canPickMany: true
-        }).then(selectedOptions => {
-            // Update search options
-            searchOptions.matchCase = selectedOptions?.some(o => o.label === 'Match Case') || false;
-            searchOptions.wholeWord = selectedOptions?.some(o => o.label === 'Whole Word') || false;
-            searchOptions.useRegex = selectedOptions?.some(o => o.label === 'Use Regex') || false;
-
-            // Then show input box for search term
-            return vscode.window.showInputBox({
-                placeHolder: 'Enter search term',
-                prompt: 'Find all occurrences in current file',
-                value: lastSearchTerm
-            });
-        }).then(searchTerm => {
-            if (!searchTerm) return;
-            lastSearchTerm = searchTerm;
-
-            // Create results panel
-            const panel = vscode.window.createWebviewPanel(
-                'findAllResults',
-                'Find All Results',
-                vscode.ViewColumn.Beside,
-                {
-                    enableScripts: true,
-                    retainContextWhenHidden: true
-                }
-            );
-
-            // Find matches with options
-            const matches = findMatchesInDocument(searchTerm, searchOptions);
-            
-            // Update panel with results and active options
-            panel.webview.html = getWebviewContent(matches, searchTerm, searchOptions);
-            
-            // Get active editor
-            const editor = vscode.window.activeTextEditor;
-            if (!editor) {
-                vscode.window.showErrorMessage('No active editor found');
-                return;
+        
+        // Pre-select the current options
+        const preSelectedItems = optionItems.filter(item => item.picked);
+        
+        quickPick.items = optionItems;
+        quickPick.selectedItems = preSelectedItems;
+        quickPick.canSelectMany = true;
+        
+        // Show description text to guide the user
+        quickPick.buttons = [
+            {
+                iconPath: new vscode.ThemeIcon('info'),
+                tooltip: 'Enter search term above and select options below. Press Enter when done.'
             }
-
-            // Handle message from webview
-            panel.webview.onDidReceiveMessage(
-                message => {
-                    if (message.command === 'navigate') {
-                        const line = message.line - 1;
-                        const startCol = message.startCol;
-                        const endCol = message.endCol;
-                        
-                        const startPos = new vscode.Position(line, startCol);
-                        const endPos = new vscode.Position(line, endCol);
-                        const range = new vscode.Range(startPos, endPos);
-                        
-                        editor.selection = new vscode.Selection(startPos, endPos);
-                        editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-                    }
-                },
-                undefined,
-                context.subscriptions
-            );
-
-            // Decorate matches in editor
-            const decorationType = vscode.window.createTextEditorDecorationType({
-                backgroundColor: new vscode.ThemeColor('editor.findMatchHighlightBackground'),
-                overviewRulerColor: new vscode.ThemeColor('editor.findMatchHighlightBackground'),
-                overviewRulerLane: vscode.OverviewRulerLane.Full
+        ];
+        
+        logger.log('QuickPick created with options', { 
+            items: optionItems,
+            preSelected: preSelectedItems
+        });
+        
+        return new Promise(resolve => {
+            quickPick.onDidAccept(() => {
+                const searchTerm = quickPick.value;
+                const selectedOptions = quickPick.selectedItems;
+                
+                if (!searchTerm || searchTerm.trim() === '') {
+                    vscode.window.showWarningMessage('Please enter a search term');
+                    return;
+                }
+                
+                logger.log('QuickPick accepted', { 
+                    searchTerm,
+                    selectedOptions 
+                });
+                
+                // Update options based on selection
+                this.matchCase = selectedOptions.some(o => o.id === 'matchCase');
+                this.wholeWord = selectedOptions.some(o => o.id === 'wholeWord');
+                this.useRegex = selectedOptions.some(o => o.id === 'useRegex');
+                this.lastSearch = searchTerm;
+                
+                // Handle highlight color (ensure only one is selected)
+                if (selectedOptions.some(o => o.id === 'highlightCoral')) {
+                    this.highlightColor = 'Coral';
+                } else if (selectedOptions.some(o => o.id === 'highlightPaleGreen')) {
+                    this.highlightColor = 'Pale Green';
+                } else {
+                    this.highlightColor = 'Default';
+                }
+                
+                // Save options to state
+                this.state.update('findAll.matchCase', this.matchCase);
+                this.state.update('findAll.wholeWord', this.wholeWord);
+                this.state.update('findAll.useRegex', this.useRegex);
+                this.state.update('findAll.lastSearch', this.lastSearch);
+                this.state.update('findAll.highlightColor', this.highlightColor);
+                
+                quickPick.hide();
+                resolve({ searchTerm, options: this });
             });
             
-            editor.setDecorations(decorationType, matches.map(m => m.range));
-
-            // Add mark feature
-            const markColor = vscode.window.showQuickPick([
-                { label: 'Default', description: 'Use default highlight color' },
-                { label: 'Coral', description: 'Light coral highlight' },
-                { label: 'Pale Green', description: 'Pale green highlight' }
-            ], {
-                placeHolder: 'Select highlight color (press Escape for temporary highlight)'
-            }).then(markColor => {
-                const decorationType = markColor ? 
-                    markDecorationTypes[markColor.label === 'Coral' ? 1 : markColor.label === 'Pale Green' ? 2 : 0] :
-                    markDecorationTypes[0];
-
-                // Apply decorations
-                if (editor) {
-                    editor.setDecorations(decorationType, matches.map(m => m.range));
-                    if (markColor) {
-                        activeDecorations.push({
-                            decorationType,
-                            ranges: matches.map(m => m.range)
-                        });
-                    }
-                }
+            quickPick.onDidHide(() => {
+                logger.log('QuickPick hidden');
+                resolve({ searchTerm: null, options: this });
             });
+            
+            quickPick.show();
+            logger.log('QuickPick shown');
+        });
+    }
+}
+
+class Logger {
+    constructor(context) {
+        this.context = context;
+        this.logs = context.globalState.get('findAll.logs', []);
+        this.outputChannel = null;
+    }
+
+    safeStringify(obj) {
+        const seen = new WeakSet();
+        return JSON.stringify(obj, (key, value) => {
+            if (typeof value === 'object' && value !== null) {
+                if (seen.has(value)) return '[Circular]';
+                seen.add(value);
+            }
+            return value;
+        });
+    }
+
+    log(action, details = {}) {
+        const entry = {
+            timestamp: new Date().toISOString(),
+            action,
+            details: this.safeStringify(details)
+        };
+        this.logs.push(entry);
+        this.context.globalState.update('findAll.logs', this.logs);
+        
+        const output = this.outputChannel || 
+            (this.outputChannel = vscode.window.createOutputChannel('Find All Logs'));
+        output.appendLine(`[${entry.timestamp}] ${action}: ${entry.details}`);
+    }
+
+    showLogs() {
+        if (!this.outputChannel) {
+            this.outputChannel = vscode.window.createOutputChannel('Find All Logs');
+        }
+        this.outputChannel.show();
+    }
+}
+
+function activate(context) {
+    const optionsManager = new FindAllOptions(context);
+    const logger = new Logger(context);
+    logger.log('Extension activated');
+    
+    let disposable = vscode.commands.registerCommand('vscode-find-all.findAll', async function () {
+        const { searchTerm, options } = await optionsManager.showOptions();
+        if (!searchTerm) return;
+        
+        // Create results panel
+        const panel = vscode.window.createWebviewPanel(
+            'findAllResults',
+            'Find All Results',
+            vscode.ViewColumn.Beside,
+            {
+                enableScripts: true,
+                retainContextWhenHidden: true,
+                localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'media'))],
+                enableCommandUris: true,
+                contentOptions: {
+                    allowScripts: true
+                }
+            }
+        );
+
+        // Find matches with options
+        const matches = findMatchesInDocument(searchTerm, options);
+        
+        // Update panel with results and active options
+        const csp = `<meta http-equiv="Content-Security-Policy" 
+            content="default-src 'none'; 
+            img-src ${panel.webview.cspSource} https:; 
+            script-src ${panel.webview.cspSource} 'unsafe-inline';
+            style-src ${panel.webview.cspSource} 'unsafe-inline';">`;
+        panel.webview.html = `<!DOCTYPE html>
+<html>
+<head>
+    ${csp}
+    ${getWebviewContent(matches, searchTerm, options)}
+</head>
+<body>
+</body>
+</html>`;
+        
+        // Get active editor
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            vscode.window.showErrorMessage('No active editor found');
+            return;
+        }
+
+        // Handle message from webview
+        panel.webview.onDidReceiveMessage(
+            message => {
+                if (message.command === 'navigate') {
+                    const line = message.line - 1;
+                    const startCol = message.startCol;
+                    const endCol = message.endCol;
+                    
+                    const startPos = new vscode.Position(line, startCol);
+                    const endPos = new vscode.Position(line, endCol);
+                    const range = new vscode.Range(startPos, endPos);
+                    
+                    editor.selection = new vscode.Selection(startPos, endPos);
+                    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+                }
+            },
+            undefined,
+            context.subscriptions
+        );
+
+        // Decorate matches in editor
+        const decorationType = markDecorationTypes[options.highlightColor === 'Default' ? 0 : options.highlightColor === 'Coral' ? 1 : 2];
+        
+        editor.setDecorations(decorationType, matches.map(m => m.range));
+
+        logger.log('Search performed', { 
+            term: searchTerm, 
+            options,
+            matchCount: matches.length 
         });
     });
 
@@ -150,10 +279,14 @@ function activate(context) {
 
     // Add to activate function
     context.subscriptions.push(
-        vscode.commands.registerCommand('vscode-find-all.toggleBookmark', toggleBookmark),
+        vscode.commands.registerCommand('vscode-find-all.toggleBookmark', () => {
+            toggleBookmark();
+            logger.log('Bookmark toggled', { line, file });
+        }),
         vscode.commands.registerCommand('vscode-find-all.nextBookmark', () => navigateBookmarks(true)),
         vscode.commands.registerCommand('vscode-find-all.prevBookmark', () => navigateBookmarks(false)),
-        vscode.commands.registerCommand('vscode-find-all.clearBookmarks', clearBookmarks)
+        vscode.commands.registerCommand('vscode-find-all.clearBookmarks', clearBookmarks),
+        vscode.commands.registerCommand('vscode-find-all.showLogs', () => logger.showLogs())
     );
 }
 
@@ -283,7 +416,8 @@ function getWebviewContent(matches, searchTerm, options) {
     const optionsText = [
         options.matchCase ? 'Match Case' : '',
         options.wholeWord ? 'Whole Word' : '',
-        options.useRegex ? 'Regex' : ''
+        options.useRegex ? 'Regex' : '',
+        options.highlightColor ? `Highlight: ${options.highlightColor}` : ''
     ].filter(Boolean).join(' • ');
     
     const summary = `
@@ -343,17 +477,11 @@ function getWebviewContent(matches, searchTerm, options) {
     }
 
     return `
-        <!DOCTYPE html>
-        <html>
-            <head>${styles}</head>
-            <body>
-                ${summary}
-                <div class="matches-container">
-                    ${matchesHtml}
-                </div>
-                ${script}
-            </body>
-        </html>
+        ${summary}
+        <div class="matches-container">
+            ${matchesHtml}
+        </div>
+        ${script}
     `;
 }
 
