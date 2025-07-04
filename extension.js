@@ -396,13 +396,27 @@ function getWebviewContent(matches, searchTerm, options) {
                 font-size: 0.9em;
                 margin-top: 3px;
             }
+            .match-line {
+                display: flex;
+                margin-bottom: 4px;
+            }
+            .line-number {
+                color: var(--vscode-editorLineNumber-foreground);
+                margin-right: 10px;
+                min-width: 40px;
+            }
+            .match-highlight {
+                background-color: var(--vscode-editor-findMatchHighlightBackground);
+                border-radius: 2px;
+                padding: 0 2px;
+            }
         </style>
     `;
 
     const script = `
         <script>
             const vscode = acquireVsCodeApi();
-            function navigate(line, startCol, endCol) {
+            function handleNavigate(line, startCol, endCol) {
                 vscode.postMessage({
                     command: 'navigate',
                     line: line,
@@ -429,22 +443,12 @@ function getWebviewContent(matches, searchTerm, options) {
     `;
     
     const matchesHtml = matches.map(match => {
-        const lineText = escapeHtml(match.lineText);
-        const highlightedText = highlightMatch(lineText, match.matchText);
-        const contextBefore = getMatchContext(match.lineText, match.matchText, 'before');
-        const contextAfter = getMatchContext(match.lineText, match.matchText, 'after');
-        
+        const highlightedLine = highlightMatch(match.lineText, match.matchText);
         return `
-            <div class="match" onclick="navigate(${match.lineNumber}, ${match.range.start.character}, ${match.range.end.character})">
-                <div class="line-number">${match.lineNumber}</div>
-                <div class="match-text">
-                    ${highlightedText}
-                    ${contextBefore || contextAfter ? 
-                        `<div class="match-context">
-                            ${contextBefore}${contextAfter}
-                        </div>` : 
-                        ''}
-                </div>
+            <div class="match-line" 
+                 onclick="handleNavigate(${match.lineNumber}, ${match.range.start.character}, ${match.range.end.character})">
+                <span class="line-number">${match.lineNumber}</span>
+                <span class="line-text">${highlightedLine}</span>
             </div>
         `;
     }).join('');
