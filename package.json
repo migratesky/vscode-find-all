@@ -18,20 +18,14 @@
     "onCommand:vscode-find-all.findAll"
   ],
   "main": "./extension.js",
-  "enabledApiProposals": ["extensionRuntime"],
-  "contributes": {
+    "contributes": {
     "commands": [
       {
         "command": "vscode-find-all.findAll",
         "title": "Find All Occurrences"
       }
     ],
-    "keybindings": [
-      {
-        "command": "vscode-find-all.findAll",
-        "when": "editorTextFocus"
-      }
-    ]
+    "keybindings": []
   },
   "scripts": {
     "lint": "eslint .",

@@ -426,85 +426,30 @@ function updateBookmarkDecorations() {
 }
 
 function activate(context) {
-    const optionsManager = new FindAllOptions(context);
-    const logger = new Logger(context);
-    logger.log('Extension activated');
-    
     let disposable = vscode.commands.registerCommand('vscode-find-all.findAll', async function () {
-        const { searchTerm, options } = await optionsManager.showOptions();
-        if (!searchTerm) return;
-        
-        // Create results panel
-        const panel = vscode.window.createWebviewPanel(
-            'findAllResults',
-            'Find All Results',
-            vscode.ViewColumn.Beside,
-            {
-                enableScripts: true,
-                retainContextWhenHidden: true,
-                localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'media'))],
-                enableCommandUris: true,
-                contentOptions: {
-                    allowScripts: true
-                }
-            }
-        );
-
-        // Find matches with options
-        const matches = findMatchesInDocument(searchTerm, options);
-        
-        // Update panel with results and active options
-        const csp = `<meta http-equiv="Content-Security-Policy" 
-            content="default-src 'none'; 
-            img-src ${panel.webview.cspSource} https:; 
-            script-src ${panel.webview.cspSource} 'unsafe-inline';
-            style-src ${panel.webview.cspSource} 'unsafe-inline';">`;
-        panel.webview.html = `<!DOCTYPE html>
-<html>
-<head>
-    ${csp}
-    ${getWebviewContent(matches, searchTerm, options)}
-</head>
-<body>
-</body>
-</html>`;
-        
-        // Get active editor
+        // Get current file path
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             vscode.window.showErrorMessage('No active editor found');
             return;
         }
-
-        // Handle message from webview
-        panel.webview.onDidReceiveMessage(
-            message => {
-                if (message.command === 'navigate') {
-                    const line = message.line - 1;
-                    const startCol = message.startCol;
-                    const endCol = message.endCol;
-                    
-                    const startPos = new vscode.Position(line, startCol);
-                    const endPos = new vscode.Position(line, endCol);
-                    const range = new vscode.Range(startPos, endPos);
-                    
-                    editor.selection = new vscode.Selection(startPos, endPos);
-                    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-                }
-            },
-            undefined,
-            context.subscriptions
-        );
-
-        // Decorate matches in editor
-        const decorationType = markDecorationTypes[options.highlightColor === 'Default' ? 0 : options.highlightColor === 'Coral' ? 1 : 2];
         
-        editor.setDecorations(decorationType, matches.map(m => m.range));
-
-        logger.log('Search performed', { 
-            term: searchTerm, 
-            options,
-            matchCount: matches.length 
+        // Get workspace-relative path for filesToInclude
+        const fileUri = editor.document.uri;
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(fileUri);
+        let filePath;
+        if (workspaceFolder) {
+            // Use relative path from workspace root
+            filePath = vscode.workspace.asRelativePath(fileUri, false);
+        } else {
+            // Fallback to just the filename if no workspace
+            filePath = path.basename(fileUri.fsPath);
+        }
+        
+        // Use VS Code's built-in search view, scoped to current file
+        await vscode.commands.executeCommand('workbench.action.findInFiles', {
+            filesToInclude: filePath,
+            triggerSearch: false
         });
     });
 
