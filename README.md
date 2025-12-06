@@ -20,6 +20,11 @@ Quickly search within the current file using VS Code's built-in search.
 
 ## Release Notes
 
+### 2.0.0
+
+- Simplified to use VS Code's built-in search
+- Opens search panel scoped to current file
+
 ### 1.0.0
 
 Initial release

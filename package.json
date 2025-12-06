@@ -2,7 +2,7 @@
   "name": "vscode-find-all",
   "displayName": "Find All Occurrences",
   "description": "Enhanced find functionality with find all occurrences and persistent highlighting",
-  "version": "0.0.1",
+  "version": "2.0.0",
   "publisher": "migratesky",
   "repository": {
     "type": "git",
