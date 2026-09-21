@@ -4,8 +4,9 @@ Quickly search within the current file using VS Code's built-in search.
 
 ## Features
 
-- Opens VS Code's Search panel pre-configured to search only in the current file
+- Opens a dedicated Search Editor tab pre-configured to search only in the current file
 - Uses all standard VS Code search options (Match Case, Whole Word, Regex)
+- Does not modify the shared Search panel state
 
 ## Usage
 

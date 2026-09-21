@@ -446,8 +446,9 @@ function activate(context) {
             filePath = path.basename(fileUri.fsPath);
         }
         
-        // Use VS Code's built-in search view, scoped to current file
-        await vscode.commands.executeCommand('workbench.action.findInFiles', {
+        // Use a dedicated Search Editor tab so the shared Search panel state
+        // (filesToInclude, options, etc.) is left untouched
+        await vscode.commands.executeCommand('search.action.openNewEditor', {
             filesToInclude: filePath,
             triggerSearch: false
         });
