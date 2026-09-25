@@ -15,7 +15,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:vscode-find-all.findAll"
+    "onCommand:vscode-find-all.findAll",
+    "onCommand:vscode-find-all.findAllDotStar"
   ],
   "main": "./extension.js",
     "contributes": {
@@ -23,9 +24,20 @@
       {
         "command": "vscode-find-all.findAll",
         "title": "Find All Occurrences"
+      },
+      {
+        "command": "vscode-find-all.findAllDotStar",
+        "title": "Find All Occurrences (.* Regex)"
       }
     ],
-    "keybindings": []
+    "keybindings": [
+      {
+        "command": "vscode-find-all.findAllDotStar",
+        "key": "ctrl+'",
+        "mac": "cmd+'",
+        "when": "editorTextFocus"
+      }
+    ]
   },
   "scripts": {
     "lint": "eslint .",

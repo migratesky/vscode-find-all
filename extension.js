@@ -189,6 +189,159 @@ class Logger {
     }
 }
 
+async function findMatchesInWorkspace(pattern, matchCase = false, token) {
+    try {
+        return await findMatchesViaSearchApi(pattern, matchCase, token);
+    } catch {
+        // findTextInFiles is a proposed API in some builds — fall back to a manual scan
+        return findMatchesManually(pattern, matchCase, token);
+    }
+}
+
+async function findMatchesViaSearchApi(pattern, matchCase, token) {
+    const matches = [];
+    await vscode.workspace.findTextInFiles(
+        { pattern, isRegExp: true, isCaseSensitive: matchCase },
+        {},
+        (result) => {
+            const docRanges = Array.isArray(result.ranges) ? result.ranges : [result.ranges];
+            const previewRanges = Array.isArray(result.preview.matches) ? result.preview.matches : [result.preview.matches];
+            previewRanges.forEach((previewRange, i) => {
+                const docRange = docRanges[i] || docRanges[0];
+                matches.push({
+                    uri: result.uri.toString(),
+                    filePath: vscode.workspace.asRelativePath(result.uri, false),
+                    line: docRange.start.line,
+                    start: docRange.start.character,
+                    end: docRange.end.character,
+                    previewText: result.preview.text,
+                    previewStart: previewRange.start.character,
+                    previewEnd: previewRange.end.character
+                });
+            });
+        },
+        token
+    );
+    return sortMatches(matches);
+}
+
+const MAX_SCAN_FILES = 20000;
+const MAX_SCAN_FILE_SIZE = 5 * 1024 * 1024;
+const MAX_SCAN_MATCHES = 5000;
+
+async function findMatchesManually(pattern, matchCase, token) {
+    const matches = [];
+    let regex;
+    try {
+        regex = new RegExp(pattern, matchCase ? 'g' : 'gi');
+    } catch {
+        return matches;
+    }
+
+    const uris = await vscode.workspace.findFiles('**/*', null, MAX_SCAN_FILES, token);
+    const decoder = new TextDecoder('utf-8');
+
+    for (const uri of uris) {
+        if (token?.isCancellationRequested || matches.length >= MAX_SCAN_MATCHES) break;
+        try {
+            const stat = await vscode.workspace.fs.stat(uri);
+            if (stat.type !== vscode.FileType.File || stat.size > MAX_SCAN_FILE_SIZE) continue;
+
+            const bytes = await vscode.workspace.fs.readFile(uri);
+            if (bytes.includes(0)) continue;
+
+            const lines = decoder.decode(bytes).split('\n');
+            const filePath = vscode.workspace.asRelativePath(uri, false);
+            for (let i = 0; i < lines.length && matches.length < MAX_SCAN_MATCHES; i++) {
+                regex.lastIndex = 0;
+                let m;
+                while ((m = regex.exec(lines[i])) !== null) {
+                    if (m[0].length === 0) {
+                        regex.lastIndex++;
+                        continue;
+                    }
+                    matches.push({
+                        uri: uri.toString(),
+                        filePath,
+                        line: i,
+                        start: m.index,
+                        end: m.index + m[0].length,
+                        previewText: lines[i],
+                        previewStart: m.index,
+                        previewEnd: m.index + m[0].length
+                    });
+                }
+            }
+        } catch {
+            // skip unreadable files
+        }
+    }
+    return sortMatches(matches);
+}
+
+function sortMatches(matches) {
+    matches.sort((a, b) => a.filePath.localeCompare(b.filePath) || a.line - b.line || a.start - b.start);
+    return matches;
+}
+
+function getLiveSearchWebviewContent() {
+    return `<!DOCTYPE html>
+<html>
+<head>
+<style>
+    body { font-family: var(--vscode-font-family); padding: 0; margin: 0; color: var(--vscode-editor-foreground); background-color: var(--vscode-editor-background); }
+    .search-bar { padding: 8px; position: sticky; top: 0; background-color: var(--vscode-editorWidget-background); border-bottom: 1px solid var(--vscode-editorWidget-border); }
+    #q { width: 100%; box-sizing: border-box; padding: 4px 8px; background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); }
+    #q:focus { outline: 1px solid var(--vscode-focusBorder); }
+    .summary { padding: 4px 8px; font-size: 12px; color: var(--vscode-descriptionForeground); }
+    .match { padding: 4px 10px; cursor: pointer; display: flex; border-bottom: 1px solid var(--vscode-editor-lineHighlightBorder); }
+    .match:hover { background-color: var(--vscode-list-hoverBackground); }
+    .file { color: var(--vscode-editorLineNumber-foreground); margin-right: 12px; white-space: nowrap; }
+    .line-text { white-space: pre; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; }
+    .hit { background-color: var(--vscode-editor-findMatchHighlightBackground); border-radius: 2px; }
+</style>
+</head>
+<body>
+    <div class="search-bar"><input id="q" placeholder="Type words to search workspace (matched as word1.*word2)" autofocus /></div>
+    <div class="summary" id="summary">Type to search</div>
+    <div id="results"></div>
+<script>
+    const vscode = acquireVsCodeApi();
+    const input = document.getElementById('q');
+    const results = document.getElementById('results');
+    const summary = document.getElementById('summary');
+    let timer;
+    let currentMatches = [];
+    input.addEventListener('input', () => {
+        const cleaned = input.value.replace(/[^a-zA-Z ]/g, '');
+        if (cleaned !== input.value) input.value = cleaned;
+        clearTimeout(timer);
+        timer = setTimeout(() => vscode.postMessage({ type: 'search', query: cleaned }), 150);
+    });
+    results.addEventListener('click', e => {
+        const el = e.target.closest('.match');
+        if (el) {
+            const m = currentMatches[+el.dataset.idx];
+            if (m) vscode.postMessage({ type: 'navigate', uri: m.uri, line: m.line, start: m.start, end: m.end });
+        }
+    });
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+    window.addEventListener('message', e => {
+        const { matches, query } = e.data;
+        currentMatches = matches;
+        summary.textContent = query.trim() ? matches.length + ' matches' : 'Type to search';
+        results.innerHTML = matches.map((m, i) => {
+            const t = m.previewText;
+            const html = esc(t.slice(0, m.previewStart)) + '<span class="hit">' + esc(t.slice(m.previewStart, m.previewEnd)) + '</span>' + esc(t.slice(m.previewEnd));
+            return '<div class="match" data-idx="' + i + '"><span class="file">' + esc(m.filePath) + ':' + (m.line + 1) + '</span><span class="line-text">' + html + '</span></div>';
+        }).join('');
+    });
+    input.focus();
+</script>
+</body>
+</html>`;
+}
+
 function findMatchesInDocument(searchTerm, options) {
     const editor = vscode.window.activeTextEditor;
     if (!editor) return [];
@@ -454,7 +607,64 @@ function activate(context) {
         });
     });
 
-    context.subscriptions.push(disposable);
+    let dotStarDisposable = vscode.commands.registerCommand('vscode-find-all.findAllDotStar', function () {
+        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+            vscode.window.showErrorMessage('No workspace folder found');
+            return;
+        }
+
+        const panel = vscode.window.createWebviewPanel(
+            'findAllDotStar',
+            'Find All (.*): Workspace',
+            vscode.ViewColumn.Beside,
+            { enableScripts: true, retainContextWhenHidden: true }
+        );
+        panel.webview.html = getLiveSearchWebviewContent();
+
+        let lastQuery = '';
+        let searchSeq = 0;
+        let currentSearch;
+        const runSearch = async (rawQuery) => {
+            const query = rawQuery.replace(/[^a-zA-Z ]/g, '');
+            lastQuery = query;
+            const seq = ++searchSeq;
+            currentSearch?.cancel();
+
+            const words = query.trim().split(/\s+/).filter(Boolean);
+            if (words.length === 0) {
+                panel.webview.postMessage({ type: 'results', query, matches: [] });
+                return;
+            }
+
+            currentSearch = new vscode.CancellationTokenSource();
+            const matches = await findMatchesInWorkspace(
+                words.map(escapeRegExp).join('.*'), false, currentSearch.token);
+            if (seq !== searchSeq) return;
+            panel.webview.postMessage({ type: 'results', query, matches });
+        };
+
+        panel.webview.onDidReceiveMessage(msg => {
+            if (msg.type === 'search') {
+                runSearch(msg.query);
+            } else if (msg.type === 'navigate') {
+                vscode.workspace.openTextDocument(vscode.Uri.parse(msg.uri)).then(doc =>
+                    vscode.window.showTextDocument(doc, {
+                        selection: new vscode.Range(msg.line, msg.start, msg.line, msg.end)
+                    })
+                );
+            }
+        });
+
+        let changeTimer;
+        const changeListener = vscode.workspace.onDidChangeTextDocument(() => {
+            if (!lastQuery) return;
+            clearTimeout(changeTimer);
+            changeTimer = setTimeout(() => runSearch(lastQuery), 500);
+        });
+        panel.onDidDispose(() => changeListener.dispose());
+    });
+
+    context.subscriptions.push(disposable, dotStarDisposable);
 }
 
 function deactivate() {}

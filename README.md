@@ -7,6 +7,7 @@ Quickly search within the current file using VS Code's built-in search.
 - Opens a dedicated Search Editor tab pre-configured to search only in the current file
 - Uses all standard VS Code search options (Match Case, Whole Word, Regex)
 - Does not modify the shared Search panel state
+- `Cmd+'` (Mac) / `Ctrl+'` (Windows/Linux) runs "Find All Occurrences (.* Regex)": opens a live-search panel — type space-separated words and they are implicitly combined into a `word1.*word2` regex search across the workspace, with results refreshing as you type
 
 ## Usage
 
